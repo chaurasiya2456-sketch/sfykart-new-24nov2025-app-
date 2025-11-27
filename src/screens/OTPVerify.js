@@ -12,23 +12,30 @@ import { auth } from "../firebaseConfig";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function OTPVerify({ route, navigation }) {
-  const { verificationId, mobile, redirectTo } = route.params;  // ⭐ redirectTo receive
+  const { verificationId, mobile, redirectTo, product } = route.params || {};  
+  // ⭐ product bhi receive kar rahe (Checkout ke liye)
 
   const [otp, setOtp] = useState("");
 
   const verifyOTP = async () => {
     try {
-      const credential = PhoneAuthProvider.credential(
-        verificationId,
-        otp
-      );
+      const credential = PhoneAuthProvider.credential(verificationId, otp);
 
       await signInWithCredential(auth, credential);
 
-      alert("Login Successful!");
+      console.log("OTP VERIFIED SUCCESS");
 
-      // ⭐ Redirect: if coming from checkout → go back to Checkout
-      navigation.replace(redirectTo || "Tabs");
+      // ⭐⭐ AFTER LOGIN SUCCESS — CHECK REDIRECT
+      if (redirectTo === "CheckoutScreen") {
+        navigation.replace("CheckoutScreen", {
+          buyNow: true,
+          product: product, // ⭐ product pass to checkout
+        });
+        return;
+      }
+
+      // ⭐ Normal login → Go to home Tabs
+      navigation.replace("Tabs");
 
     } catch (error) {
       console.log("VERIFY ERROR:", error);

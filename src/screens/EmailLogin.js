@@ -10,9 +10,9 @@ import {
 } from "react-native";
 
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "../firebaseConfig";   // ✅ Correct import path
+import { auth, db } from "../firebaseConfig";
 import { doc, getDoc } from "firebase/firestore";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 
 const BRAND = {
   primary: "#2563eb",
@@ -21,6 +21,11 @@ const BRAND = {
 
 export default function EmailLogin() {
   const navigation = useNavigation();
+  const route = useRoute();
+
+  // ⭐ Redirect values coming from ProductDetails → Login → EmailLogin
+  const redirectTo = route.params?.redirectTo || null;
+  const product = route.params?.product || null;
 
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
@@ -42,7 +47,7 @@ export default function EmailLogin() {
       const ref = doc(db, "users", userCred.user.uid);
       const snap = await getDoc(ref);
 
-      // No profile → go to CreateAccount
+      // If no profile → redirect to CreateAccount
       if (!snap.exists()) {
         navigation.replace("CreateAccount", {
           uid: userCred.user.uid,
@@ -51,9 +56,17 @@ export default function EmailLogin() {
         return;
       }
 
-      // Success → go to Home or Tabs
-      // Replace "Tabs" with your actual home screen name
-      navigation.replace("HomeScreen");
+      // ⭐⭐ CHECK REDIRECT — If coming from BUY NOW → Go to Checkout
+      if (redirectTo === "CheckoutScreen") {
+        navigation.replace("CheckoutScreen", {
+          buyNow: true,
+          product: product,
+        });
+        return;
+      }
+
+      // ⭐ Normal Login → Go to Tabs/Home
+      navigation.replace("Tabs");
 
     } catch (err) {
       console.log("Email login error:", err);
@@ -109,18 +122,23 @@ export default function EmailLogin() {
 
       <TouchableOpacity
         style={styles.googleBtn}
-        onPress={() => navigation.navigate("GoogleLogin")}
+        onPress={() =>
+          navigation.navigate("GoogleLogin", {
+            redirectTo,
+            product,
+          })
+        }
       >
         <Text style={styles.googleText}>Continue with Google</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
         style={styles.createBtn}
-        onPress={() => navigation.navigate("CreateAccount")}
+        onPress={() =>
+          navigation.navigate("CreateAccount", { redirectTo, product })
+        }
       >
-        <Text style={styles.createText}>
-          New to SfyKart? Create Account
-        </Text>
+        <Text style={styles.createText}>New to SfyKart? Create Account</Text>
       </TouchableOpacity>
     </View>
   );

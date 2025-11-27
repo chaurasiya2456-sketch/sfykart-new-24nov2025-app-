@@ -6,7 +6,7 @@ import * as Google from "expo-auth-session/providers/google";
 import { auth, db } from "../firebaseConfig";
 import { GoogleAuthProvider, signInWithCredential } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -17,6 +17,11 @@ const BRAND = {
 
 export default function GoogleLogin() {
   const navigation = useNavigation();
+  const route = useRoute();
+
+  // ⭐ Redirect values coming from Login / ProductDetails
+  const redirectTo = route.params?.redirectTo || null;
+  const product = route.params?.product || null;
 
   // Google Auth Session
   const [request, response, promptAsync] = Google.useAuthRequest({
@@ -39,8 +44,10 @@ export default function GoogleLogin() {
       const userRef = doc(db, "users", userCred.user.uid);
       const snap = await getDoc(userRef);
 
+      /* ------------------------------------------------
+           NEW USER → Create profile → Redirect
+      ------------------------------------------------ */
       if (!snap.exists()) {
-        // new user folder create → then redirect to CreateAccount
         await setDoc(userRef, {
           uid: userCred.user.uid,
           firstName: userCred.user.displayName?.split(" ")[0] || "",
@@ -56,11 +63,24 @@ export default function GoogleLogin() {
         return navigation.replace("CreateAccount", {
           uid: userCred.user.uid,
           mobile: "",
+          redirectTo: redirectTo,
+          product: product,
         });
       }
 
-      // old user → go to Home
-      navigation.replace("Home");
+      /* ------------------------------------------------
+           OLD USER → CHECK REDIRECT
+      ------------------------------------------------ */
+      if (redirectTo === "CheckoutScreen") {
+        return navigation.replace("CheckoutScreen", {
+          buyNow: true,
+          product: product,
+        });
+      }
+
+      // Normal Login → Go to Tabs/Home
+      navigation.replace("Tabs");
+
     } catch (error) {
       console.log("Google login failed:", error);
       alert("Google login failed");

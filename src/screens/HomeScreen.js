@@ -17,7 +17,7 @@ import HeroSlider from "../components/HeroSlider";
 import { useNavigation } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-/* ⭐ Convert rating number → ★★★★☆ */
+/* ⭐ Convert rating number → stars */
 const renderStars = (rating) => {
   let stars = "";
   const full = Math.floor(rating);
@@ -32,8 +32,29 @@ function HomeContent() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
 
-  const [products, setProducts] = useState([]);
-  const [featured, setFeatured] = useState([]);
+  /* ⭐ SEARCH STATES */
+  const [searchText, setSearchText] = useState("");
+  const [allProducts, setAllProducts] = useState([]);
+  const [filteredProducts, setFilteredProducts] = useState([]);
+
+  const handleSearch = (text) => {
+    setSearchText(text);
+
+    if (text.trim() === "") {
+      setFilteredProducts(allProducts);
+      return;
+    }
+
+    const result = allProducts.filter((item) =>
+      item.name.toLowerCase().includes(text.toLowerCase())
+    );
+
+    setFilteredProducts(result);
+  };
+
+  /* ⭐ PRODUCT STATES */
+  const [products, setProducts] = useState([]); // trending
+  const [featured, setFeatured] = useState([]); // featured
   const [loading, setLoading] = useState(true);
 
   /* --------------------------------------------------------
@@ -47,29 +68,34 @@ function HomeContent() {
       const list = snap.docs.map((doc) => {
         const data = doc.data();
         const image = data.images?.[0]?.url || "";
-
-        const off = Math.round(
-          ((data.comparePrice - data.price) / data.comparePrice) * 100
-        );
+        const off = Math.round(((data.comparePrice - data.price) / data.comparePrice) * 100);
 
         return {
           id: doc.id,
           image,
           off,
+          name: data.name,
           reviews: data.reviews || 0,
           rating: Number(data.avgRating || data.rating || 4.3),
+          price: data.price,
+          comparePrice: data.comparePrice,
           ...data,
         };
       });
 
       setProducts(list);
+
+      // ⭐ Add to search list
+      setAllProducts((prev) => [...prev, ...list]);
+      setFilteredProducts((prev) => [...prev, ...list]);
+
     } catch (err) {
       console.log("Trending fetch error:", err);
     }
   };
 
   /* --------------------------------------------------------
-    ⭐ FETCH FEATURED PRODUCTS
+      ⭐ FETCH FEATURED PRODUCTS
   ----------------------------------------------------------- */
   const fetchFeaturedProducts = async () => {
     try {
@@ -79,28 +105,33 @@ function HomeContent() {
       const list = snap.docs.map((doc) => {
         const data = doc.data();
         const image = data.images?.[0]?.url || "";
-
-        const off = Math.round(
-          ((data.comparePrice - data.price) / data.comparePrice) * 100
-        );
+        const off = Math.round(((data.comparePrice - data.price) / data.comparePrice) * 100);
 
         return {
           id: doc.id,
           image,
           off,
-          reviews: data.totalReviews || 0,
+          name: data.name,
+          reviews: data.reviews || 0,
           rating: Number(data.avgRating || data.rating || 4.4),
+          price: data.price,
+          comparePrice: data.comparePrice,
           ...data,
         };
       });
 
       setFeatured(list);
+
+      // ⭐ Add to search list
+      setAllProducts((prev) => [...prev, ...list]);
+      setFilteredProducts((prev) => [...prev, ...list]);
+
     } catch (err) {
       console.log("Featured fetch error:", err);
     }
   };
 
-  /* LOAD BOTH */
+  /* LOAD PRODUCTS */
   useEffect(() => {
     (async () => {
       await fetchProducts();
@@ -110,32 +141,26 @@ function HomeContent() {
   }, []);
 
   /* --------------------------------------------------------
-      🛒 ADD TO CART FUNCTION
+      🛒 ADD TO CART
   ----------------------------------------------------------- */
   const handleAddToCart = async (item) => {
     try {
-      const key = "sfy_cart_v1";
-      const raw = await AsyncStorage.getItem(key);
+      const raw = await AsyncStorage.getItem("sfy_cart_v1");
       const cart = raw ? JSON.parse(raw) : [];
 
-      const idx = cart.findIndex((x) => x.slug === item.slug);
+      const idx = cart.findIndex((x) => x.id === item.id);
 
       if (idx !== -1) {
         cart[idx].quantity = (cart[idx].quantity || 1) + 1;
       } else {
         cart.push({
-          id: item.id,
-          slug: item.slug,
-          name: item.name,
-          price: item.price,
-          comparePrice: item.comparePrice,
-          image: item.image,
+          ...item,
           quantity: 1,
         });
       }
 
-      await AsyncStorage.setItem(key, JSON.stringify(cart));
-      Alert.alert("Added to Cart", `${item.name} added to cart`);
+      await AsyncStorage.setItem("sfy_cart_v1", JSON.stringify(cart));
+      Alert.alert("Added", `${item.name} added to cart`);
     } catch (err) {
       Alert.alert("Error", "Unable to add to cart");
     }
@@ -146,40 +171,92 @@ function HomeContent() {
       
       {/* HEADER */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <Text style={styles.logo}>SfyKart</Text>
-        <TextInput style={styles.search} placeholder="Search for products..." />
+        <Image
+          source={require("../assets/logo.png")}
+          style={{ width: 130, height: 40, resizeMode: "contain" }}
+        />
+
+        {/* SEARCH BAR WITH GOLD BUTTON */}
+        <View style={styles.searchWrapper}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search for products..."
+            placeholderTextColor="#777"
+            value={searchText}
+            onChangeText={handleSearch}
+          />
+
+          <TouchableOpacity style={styles.searchBtn}>
+            <Text style={{ color: "#fff", fontWeight: "900" }}>🔍</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView>
+
+        {/* ⭐ SEARCH RESULTS */}
+        {searchText.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Search Results</Text>
+
+            <View style={styles.gridWrapper}>
+              {filteredProducts.length === 0 ? (
+                <Text style={{ marginLeft: 15, color: "#555" }}>No products found</Text>
+              ) : (
+                filteredProducts.map((item, index) => (
+                  <View key={index} style={styles.productCard}>
+                    <TouchableOpacity onPress={() => navigation.navigate("ProductDetails", item)}>
+                      <View style={styles.imageBox}>
+                        <Image source={{ uri: item.image }} style={styles.prodImg} />
+                      </View>
+
+                      <Text style={styles.productName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+
+                      <View style={styles.priceRow}>
+                        <Text style={styles.productPrice}>₹{item.price}</Text>
+                        <Text style={styles.mrp}>₹{item.comparePrice}</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.addBtn} onPress={() => handleAddToCart(item)}>
+                      <Text style={{ color: "#fff", fontWeight: "700" }}>Add to Cart</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+            </View>
+          </>
+        )}
 
         {/* HERO SLIDER */}
         <HeroSlider />
 
         {/* CATEGORIES */}
         <Text style={styles.sectionTitle}>Categories</Text>
-
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 10 }}>
-          {[
-            "Mobiles", "Electronics", "Fashion", "Home", "Beauty",
-            "Grocery", "Sports", "Toys", "Shoes", "Kitchen",
-          ].map((cat, i) => (
-            <View key={i} style={styles.categoryBox}>
-              <Text style={styles.categoryText}>{cat}</Text>
-            </View>
-          ))}
+          {["Mobiles", "Electronics", "Fashion", "Home", "Beauty", "Grocery", "Sports", "Toys", "Shoes", "Kitchen"]
+            .map((cat, i) => (
+              <View key={i} style={styles.categoryBox}>
+                <Text style={styles.categoryText}>{cat}</Text>
+              </View>
+            ))}
         </ScrollView>
 
-        {/* --------------------------------------------------------
-              🔥 TRENDING PRODUCTS
-        ----------------------------------------------------------- */}
+        {/* TRENDING */}
         <Text style={styles.sectionTitle}>Trending Products</Text>
 
         <View style={styles.gridWrapper}>
           {products.map((item, index) => (
             <View key={index} style={styles.productCard}>
 
-              {/* CLICKABLE WHOLE AREA */}
-              <TouchableOpacity onPress={() => navigation.navigate("ProductDetails", item)}>
+              <TouchableOpacity
+  onPress={() =>
+  navigation.navigate("ProductDetails", { ...item, slug: item.slug || item.id })
+}
+>
+
                 <View style={styles.imageBox}>
                   <Image source={{ uri: item.image }} style={styles.prodImg} />
                 </View>
@@ -189,9 +266,14 @@ function HomeContent() {
                 </Text>
 
                 <Text style={styles.ratingStar}>
-                  <Text style={styles.starIcon}>{renderStars(item.rating)}</Text>
-                  <Text style={styles.reviews}> ({item.reviews})</Text>
-                </Text>
+  <Text style={styles.starIcon}>
+    {renderStars(item.avgRating || 0)}
+  </Text>
+  <Text style={styles.reviews}>
+    ({item.totalReviews || 0})
+  </Text>
+</Text>
+
 
                 <View style={styles.priceRow}>
                   <Text style={styles.productPrice}>₹{item.price}</Text>
@@ -203,20 +285,23 @@ function HomeContent() {
               <TouchableOpacity style={styles.addBtn} onPress={() => handleAddToCart(item)}>
                 <Text style={{ color: "#fff", fontWeight: "700" }}>Add to Cart</Text>
               </TouchableOpacity>
+
             </View>
           ))}
         </View>
 
-        {/* --------------------------------------------------------
-              ⭐ FEATURED PRODUCTS
-        ----------------------------------------------------------- */}
+        {/* FEATURED */}
         <Text style={styles.sectionTitle}>Featured Products</Text>
 
         <View style={styles.gridWrapper}>
           {featured.map((item, index) => (
             <View key={index} style={styles.productCard}>
 
-              <TouchableOpacity onPress={() => navigation.navigate("ProductDetails", item)}>
+<TouchableOpacity
+  onPress={() =>
+  navigation.navigate("ProductDetails", { ...item, slug: item.slug || item.id })
+}
+>
                 <View style={styles.imageBox}>
                   <Image source={{ uri: item.image }} style={styles.prodImg} />
                 </View>
@@ -226,9 +311,14 @@ function HomeContent() {
                 </Text>
 
                 <Text style={styles.ratingStar}>
-                  <Text style={styles.starIcon}>{renderStars(item.rating)}</Text>
-                  <Text style={styles.reviews}> ({item.reviews})</Text>
-                </Text>
+  <Text style={styles.starIcon}>
+    {renderStars(item.avgRating || 0)}
+  </Text>
+  <Text style={styles.reviews}>
+    ({item.totalReviews || 0})
+  </Text>
+</Text>
+
 
                 <View style={styles.priceRow}>
                   <Text style={styles.productPrice}>₹{item.price}</Text>
@@ -240,6 +330,7 @@ function HomeContent() {
               <TouchableOpacity style={styles.addBtn} onPress={() => handleAddToCart(item)}>
                 <Text style={{ color: "#fff", fontWeight: "700" }}>Add to Cart</Text>
               </TouchableOpacity>
+
             </View>
           ))}
         </View>
@@ -268,15 +359,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  logo: { color: "#fff", fontSize: 22, fontWeight: "900" },
-  search: {
+
+  /* NEW SEARCH WRAPPER */
+  searchWrapper: {
     flex: 1,
-    backgroundColor: "#fff",
+    flexDirection: "row",
     marginLeft: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    alignItems: "center",
   },
+
+  searchInput: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+
+  searchBtn: {
+    backgroundColor: "#d4af37",  // GOLD
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopRightRadius: 10,
+    borderBottomRightRadius: 10,
+  },
+
   sectionTitle: { fontSize: 18, fontWeight: "700", padding: 15 },
 
   categoryBox: {
@@ -286,6 +393,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginRight: 12,
   },
+
   categoryText: { fontSize: 14, fontWeight: "600" },
 
   gridWrapper: {
@@ -311,6 +419,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginBottom: 10,
   },
+
   prodImg: { width: "100%", height: "100%" },
 
   productName: { fontSize: 14, fontWeight: "600" },
@@ -321,13 +430,16 @@ const styles = StyleSheet.create({
   reviews: { color: "#777", fontSize: 12 },
 
   priceRow: { flexDirection: "row", alignItems: "center", marginTop: 4 },
+
   productPrice: { fontSize: 15, fontWeight: "900", marginRight: 6 },
+
   mrp: {
     fontSize: 12,
     textDecorationLine: "line-through",
     color: "#777",
     marginRight: 6,
   },
+
   discount: { fontSize: 12, color: "green", fontWeight: "700" },
 
   addBtn: {

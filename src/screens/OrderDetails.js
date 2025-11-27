@@ -16,11 +16,13 @@ export default function OrderDetails({ route, navigation }) {
 
   const [liveOrder, setLiveOrder] = useState(order);
 
-  // 🔥 LIVE TRACKING
+  // 🔥 Correct LIVE TRACKING (order.orderId ya order.id)
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "orders", order.id), (snap) => {
+    const orderDocId = order.orderId || order.id; // FIXED
+
+    const unsub = onSnapshot(doc(db, "orders", orderDocId), (snap) => {
       if (snap.exists()) {
-        setLiveOrder(snap.data());
+        setLiveOrder({ ...snap.data(), id: snap.id });
       }
     });
 
@@ -28,6 +30,28 @@ export default function OrderDetails({ route, navigation }) {
   }, []);
 
   const status = liveOrder?.status || "Processing";
+
+  // 🔥 Correct product
+  const firstItem =
+    liveOrder?.items?.[0] ||
+    order?.items?.[0] ||
+    {};
+
+  const productName = firstItem.title || firstItem.name || "Product";
+
+  // 🔥 Correct amount
+  const amount =
+    liveOrder?.totalAmount ??
+    liveOrder?.amount ??
+    order?.totalAmount ??
+    order?.amount ??
+    0;
+
+  // 🔥 Correct created date
+  const createdAt =
+    liveOrder?.createdAt?.toDate?.() ||
+    new Date(liveOrder?.createdAt) ||
+    new Date();
 
   const trackingSteps = [
     { key: "Placed", label: "Order Placed", icon: "checkmark-circle" },
@@ -78,8 +102,10 @@ export default function OrderDetails({ route, navigation }) {
 
             <View style={{ marginLeft: 12 }}>
               <Text style={styles.statusText}>{status}</Text>
+              
+              {/* FIXED DATE */}
               <Text style={styles.dateText}>
-                {liveOrder?.date || order?.date}
+                {createdAt.toDateString()}
               </Text>
             </View>
           </View>
@@ -89,8 +115,11 @@ export default function OrderDetails({ route, navigation }) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Product</Text>
 
-          <Text style={styles.productName}>{liveOrder?.productName}</Text>
-          <Text style={styles.amount}>₹{liveOrder?.amount}</Text>
+          {/* FIXED PRODUCT */}
+          <Text style={styles.productName}>{productName}</Text>
+
+          {/* FIXED AMOUNT */}
+          <Text style={styles.amount}>₹{amount}</Text>
         </View>
 
         {/* TRACK SHIPMENT */}
@@ -135,68 +164,72 @@ export default function OrderDetails({ route, navigation }) {
         {/* ORDER ID */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Order ID</Text>
-          <Text style={styles.normalText}>{order.id}</Text>
+
+          {/* FIXED */}
+          <Text style={styles.normalText}>
+            {order.orderId || order.id}
+          </Text>
         </View>
-{/* REFUND STATUS */}
-{order.refund && (
-  <View style={styles.section}>
-    <Text style={styles.sectionTitle}>Refund Status</Text>
 
-    {/* STATUS ICON */}
-    <View style={styles.row}>
-      <Ionicons
-        name={
-          order.refund.status === "processed"
-            ? "checkmark-circle"
-            : order.refund.status === "initiated"
-            ? "sync-outline"
-            : order.refund.status === "pending"
-            ? "time-outline"
-            : "close-circle"
-        }
-        size={28}
-        color={
-          order.refund.status === "processed"
-            ? "#16a34a"
-            : order.refund.status === "initiated"
-            ? "#2563eb"
-            : order.refund.status === "pending"
-            ? "#f59e0b"
-            : "#dc2626"
-        }
-      />
+        {/* REFUND STATUS */}
+        {order.refund && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Refund Status</Text>
 
-      <View style={{ marginLeft: 12 }}>
-        <Text style={styles.refundStatusText}>
-          {order.refund.status === "processed"
-            ? "Refund Completed"
-            : order.refund.status === "initiated"
-            ? "Refund Initiated"
-            : order.refund.status === "pending"
-            ? "Refund Pending"
-            : "Refund Failed"}
-        </Text>
+            <View style={styles.row}>
+              <Ionicons
+                name={
+                  order.refund.status === "processed"
+                    ? "checkmark-circle"
+                    : order.refund.status === "initiated"
+                    ? "sync-outline"
+                    : order.refund.status === "pending"
+                    ? "time-outline"
+                    : "close-circle"
+                }
+                size={28}
+                color={
+                  order.refund.status === "processed"
+                    ? "#16a34a"
+                    : order.refund.status === "initiated"
+                    ? "#2563eb"
+                    : order.refund.status === "pending"
+                    ? "#f59e0b"
+                    : "#dc2626"
+                }
+              />
 
-        <Text style={styles.refundDateText}>
-          {new Date(order.refund.date).toDateString()}
-        </Text>
-      </View>
-    </View>
+              <View style={{ marginLeft: 12 }}>
+                <Text style={styles.refundStatusText}>
+                  {order.refund.status === "processed"
+                    ? "Refund Completed"
+                    : order.refund.status === "initiated"
+                    ? "Refund Initiated"
+                    : order.refund.status === "pending"
+                    ? "Refund Pending"
+                    : "Refund Failed"}
+                </Text>
 
-    {/* AMOUNT */}
-    <Text style={styles.refundAmount}>
-      Amount: ₹{order.refund.amount}
-    </Text>
+                <Text style={styles.refundDateText}>
+                  {new Date(order.refund.date).toDateString()}
+                </Text>
+              </View>
+            </View>
 
-    {/* METHOD */}
-    <Text style={styles.refundMethod}>
-      Refunded To: {order.refund.method === "wallet" ? "SfyKart Wallet" : "Bank Account"}
-    </Text>
+            <Text style={styles.refundAmount}>
+              Amount: ₹{order.refund.amount}
+            </Text>
 
-    {/* NOTE */}
-    <Text style={styles.refundNote}>{order.refund.note}</Text>
-  </View>
-)}
+            <Text style={styles.refundMethod}>
+              Refunded To:{" "}
+              {order.refund.method === "wallet"
+                ? "SfyKart Wallet"
+                : "Bank Account"}
+            </Text>
+
+            <Text style={styles.refundNote}>{order.refund.note}</Text>
+          </View>
+        )}
 
         {/* DELIVERY ADDRESS */}
         <View style={styles.section}>
@@ -238,7 +271,7 @@ export default function OrderDetails({ route, navigation }) {
 }
 
 /* ============================================================
-                        STYLES
+                        STYLES (UNCHANGED)
 ============================================================ */
 const styles = StyleSheet.create({
   container: {
@@ -378,36 +411,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
   },
+
   refundStatusText: {
-  fontSize: 18,
-  fontWeight: "800",
-  color: "#111",
-},
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111",
+  },
 
-refundDateText: {
-  fontSize: 14,
-  color: "#666",
-},
+  refundDateText: {
+    fontSize: 14,
+    color: "#666",
+  },
 
-refundAmount: {
-  fontSize: 16,
-  fontWeight: "700",
-  marginTop: 10,
-  color: "#2563eb",
-},
+  refundAmount: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginTop: 10,
+    color: "#2563eb",
+  },
 
-refundMethod: {
-  fontSize: 15,
-  fontWeight: "600",
-  marginTop: 4,
-  color: "#444",
-},
+  refundMethod: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginTop: 4,
+    color: "#444",
+  },
 
-refundNote: {
-  marginTop: 6,
-  fontSize: 14,
-  color: "#666",
-  fontStyle: "italic",
-},
-
+  refundNote: {
+    marginTop: 6,
+    fontSize: 14,
+    color: "#666",
+    fontStyle: "italic",
+  },
 });

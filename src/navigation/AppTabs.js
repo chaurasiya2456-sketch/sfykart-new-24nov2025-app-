@@ -5,30 +5,36 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 
-// SCREENS
+// MAIN SCREENS
 import HomeScreen from "../screens/HomeScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import CartScreen from "../screens/CartScreen";
 
+// AUTH SCREENS
 import LoginScreen from "../screens/LoginScreen";
 import GoogleLogin from "../screens/GoogleLogin";
 import CreateAccount from "../screens/CreateAccount";
 
+// ADDRESS & PROFILE
 import Address from "../screens/Address";
 import AddAddress from "../screens/AddAddress";
 import EditAddress from "../screens/EditAddress";
-
-import Orders from "../screens/Orders";
-import OrderDetails from "../screens/OrderDetails";
-
 import ProfileSettings from "../screens/ProfileSettings";
 import Wallet from "../screens/Wallet";
 import RefundStatus from "../screens/RefundStatus";
 import Help from "../screens/Help";
-
 import Notifications from "../screens/Notifications";
 import PrivacySecurity from "../screens/PrivacySecurity";
 import TwoFactor from "../screens/TwoFactor";
+
+// PRODUCT & ORDER SCREENS
+import ProductDetails from "../screens/ProductDetails";
+import CheckoutScreen from "../screens/CheckoutScreen";
+import PaymentScreen from "../screens/PaymentScreen";
+import WebPayment from "../screens/WebPayment";
+import ThankYou from "../screens/ThankYou";
+import Orders from "../screens/Orders";
+import OrderDetails from "../screens/OrderDetails";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -38,6 +44,15 @@ function HomeStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="HomeMain" component={HomeScreen} />
+
+      {/* PRODUCT FLOW (TAB BAR VISIBLE) */}
+      <Stack.Screen name="ProductDetails" component={ProductDetails} />
+      <Stack.Screen name="CheckoutScreen" component={CheckoutScreen} />
+      <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
+      <Stack.Screen name="WebPayment" component={WebPayment} />
+      <Stack.Screen name="ThankYou" component={ThankYou} />
+
+      {/* AUTH FLOW */}
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="GoogleLogin" component={GoogleLogin} />
       <Stack.Screen name="CreateAccount" component={CreateAccount} />
@@ -61,11 +76,13 @@ function ProfileStack() {
       <Stack.Screen name="ProfileSettings" component={ProfileSettings} />
       <Stack.Screen name="Wallet" component={Wallet} />
       <Stack.Screen name="RefundStatus" component={RefundStatus} />
-
       <Stack.Screen name="Help" component={Help} />
       <Stack.Screen name="Notifications" component={Notifications} />
       <Stack.Screen name="PrivacySecurity" component={PrivacySecurity} />
       <Stack.Screen name="TwoFactor" component={TwoFactor} />
+
+      {/* PRODUCT DETAILS FROM PROFILE AREA TOO */}
+      <Stack.Screen name="ProductDetails" component={ProductDetails} />
     </Stack.Navigator>
   );
 }
@@ -77,13 +94,11 @@ export default function AppTabs() {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
-
         tabBarLabelStyle: {
           fontSize: 13,
           fontWeight: "600",
           marginBottom: 4,
         },
-
         tabBarStyle: {
           height: 60,
           backgroundColor: "#fff",
@@ -94,7 +109,6 @@ export default function AppTabs() {
           shadowOffset: { width: 0, height: -2 },
           shadowRadius: 6,
         },
-
         tabBarIcon: ({ focused }) => {
           let iconName = "home-outline";
 

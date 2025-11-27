@@ -1,4 +1,5 @@
 // screens/CheckoutScreen.js
+
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -20,24 +21,22 @@ import { useNavigation } from "@react-navigation/native";
 // ⭐ Local Storage
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// ⭐ Firebase (Correct)
+// ⭐ Firebase Config
 import { auth, db } from "../firebaseConfig";
 
-// ⭐ Firestore methods
-import { doc, getDoc, collection, addDoc, Timestamp } from "firebase/firestore";
-
+// ⭐ Firestore (FINAL correct import)
+import { doc, getDoc, collection, addDoc, Timestamp, setDoc } from "firebase/firestore";
 
 const STORAGE_KEY = "sfy_cart_v1";
 const LOCAL_PLACEHOLDER = "https://via.placeholder.com/300";
 
 export default function CheckoutScreen() {
   const navigation = useNavigation();
+
+  // -----------------------------
+  // STATES
+  // -----------------------------
   const [uid, setUid] = useState(null);
-
-useEffect(() => {
-  setUid(auth.currentUser?.uid || null);
-}, []);
-
   const [billing, setBilling] = useState(null);
   const [sameAsBilling, setSameAsBilling] = useState(true);
 
@@ -52,122 +51,159 @@ useEffect(() => {
     pincode: "",
   });
 
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState([]); // normalized items array used for placing order
   const [loadingItems, setLoadingItems] = useState(true);
-
   const [paymentMethod, setPaymentMethod] = useState("cod");
   const [placing, setPlacing] = useState(false);
 
-  const subtotal = items.reduce(
-    (s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 1),
-    0
-  );
+  // ⭐ Buy Now Product (raw object from AsyncStorage)
+  const [buyProduct, setBuyProduct] = useState(null);
+
+  // Helper: normalize any item (cart entry or buyNow product) to common shape
+  const normalizeItem = (it) => {
+    // it may have many shapes: {name, title, price, images, image, slug, quantity, qty}
+    let img = LOCAL_PLACEHOLDER;
+    if (typeof it.image === "string") img = it.image;
+    else if (it.image?.current) img = it.image.current;
+    else if (it.images?.[0]?.url) img = it.images[0].url;
+    else if (it.images && typeof it.images === "string") img = it.images;
+
+    const qty = Number(it.quantity || it.qty || it.quantity === 0 ? Number(it.quantity || it.qty) : 1) || 1;
+
+    return {
+      id: it.id || it.slug || Math.random().toString(36).slice(2),
+      title: it.title || it.name || "Product",
+      image: img,
+      price: Number(it.price || 0),
+      qty,
+      raw: it,
+    };
+  };
+
+  // -----------------------------
+  // Load buyNow or cart from AsyncStorage (initial)
+  // -----------------------------
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoadingItems(true);
+
+        // check buyNow first
+        const buy = await AsyncStorage.getItem("sfy_buyNow");
+        if (buy) {
+          const parsed = JSON.parse(buy);
+
+          // set buyProduct so UI knows Buy Now mode is active
+          setBuyProduct(parsed);
+
+          // normalize and set items array for placing order (single item)
+          setItems([normalizeItem(parsed)]);
+          setLoadingItems(false);
+          return;
+        }
+
+        // otherwise load cart
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+
+        const normalized = arr.map((it) => normalizeItem(it));
+        setItems(normalized);
+      } catch (err) {
+        console.warn("Checkout load error:", err);
+        setItems([]);
+      } finally {
+        setLoadingItems(false);
+      }
+    })();
+  }, []);
+
+  // -----------------------------
+  // PRICE CALCULATION (Buy Now + Cart both supported)
+  // -----------------------------
+  const subtotal = items.reduce((s, it) => s + Number(it.price || 0) * Number(it.qty || 1), 0);
   const deliveryCharge = subtotal > 499 ? 0 : 39;
   const payable = subtotal + deliveryCharge;
 
-  // -------------------------------------------
-  // Load Billing Address From Firestore
-  // -------------------------------------------
- const fetchBilling = async () => {
-  try {
-    // 1️⃣ Try from local storage first (FAST)
-    const local = await AsyncStorage.getItem("sfy_user_v1");
+  // -----------------------------
+  // 1️⃣ LOAD UID
+  // -----------------------------
+  useEffect(() => {
+    const id = auth.currentUser?.uid;
+    if (id) setUid(id);
+  }, []);
 
-    if (local) {
-      const u = JSON.parse(local);
+  // -----------------------------
+  // 2️⃣ LOAD BILLING + CART AFTER UID (optional)
+  // -----------------------------
+  useEffect(() => {
+    if (!uid) return;
 
-      if (u.billingAddress) {
-        setBilling(u.billingAddress);
-        return;
+    fetchBilling();
+    // no need to call loadCartFromStorage here, initial effect already loaded storage
+  }, [uid]);
+
+  // -----------------------------
+  // Load Billing Address
+  // -----------------------------
+  const fetchBilling = async () => {
+    try {
+      // Try local first
+      const local = await AsyncStorage.getItem("sfy_user_v1");
+
+      if (local) {
+        const u = JSON.parse(local);
+        if (u.billingAddress) {
+          setBilling(u.billingAddress);
+          return;
+        }
       }
-    }
 
-    // 2️⃣ If not found → load from Firestore
-    const userId = auth.currentUser?.uid;
-    if (!userId) return;
+      // Load from Firestore
+      const snap = await getDoc(doc(db, "users", uid));
 
-    const snap = await getDoc(doc(db, "users", userId));
+      if (snap.exists()) {
+        const data = snap.data();
 
-    if (snap.exists()) {
-      const data = snap.data();
+        const b = data.billingAddress || {};
+        const d = data.deliveryAddress || {};
 
-      const b = data.billingAddress || {};
-      const d = data.deliveryAddress || {};
+        const formatted = {
+          name:
+            b.name ||
+            d.name ||
+            `${data.firstName || ""} ${data.lastName || ""}`.trim(),
 
-      const formatted = {
-        name: b.name || d.name || `${data.firstName || ""} ${data.lastName || ""}`.trim(),
-        phone: b.phone || d.phone || data.mobile || "",
-        street: b.street || d.street || "",
-        post: b.post || d.post || "",
-        district: b.district || d.district || "",
-        city: b.city || d.city || "",
-        state: b.state || d.state || "",
-        pincode: b.pincode || d.pincode || "",
-      };
-
-      setBilling(formatted);
-
-      // ⭐ Save to local for next time
-      await AsyncStorage.setItem("sfy_user_v1", JSON.stringify(data));
-    }
-  } catch (err) {
-    console.warn("Billing load error:", err);
-  }
-};
-
-
-  // -------------------------------------------
-  // Load CART From AsyncStorage
-  // -------------------------------------------
-  const loadCartFromStorage = async () => {
-    setLoadingItems(true);
-
-    try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      const arr = raw ? JSON.parse(raw) : [];
-
-      const normalized = arr.map((it) => {
-        let img = LOCAL_PLACEHOLDER;
-
-        if (typeof it.image === "string") img = it.image;
-        else if (it.image?.current && typeof it.image.current === "string")
-          img = it.image.current;
-        else if (it.images?.[0]?.url) img = it.images[0].url;
-
-        return {
-          id:
-            it.id ||
-            it.productId ||
-            it.slug ||
-            Math.random().toString(36).slice(2),
-          title: it.title || it.name || "Product",
-          image: img,
-          price: Number(it.price || 0),
-          qty: Number(it.qty || it.quantity || 1),
+          phone: b.phone || d.phone || data.mobile || "",
+          street: b.street || d.street || "",
+          post: b.post || d.post || "",
+          district: b.district || d.district || "",
+          city: b.city || d.city || "",
+          state: b.state || d.state || "",
+          pincode: b.pincode || d.pincode || "",
         };
-      });
 
-      setItems(normalized);
+        setBilling(formatted);
+
+        await AsyncStorage.setItem("sfy_user_v1", JSON.stringify(data));
+      }
     } catch (err) {
-      console.warn("Cart load error:", err);
+      console.warn("Billing load error:", err);
     }
-
-    setLoadingItems(false);
   };
 
-  // -------------------------------------------
-  // Clear Cart
-  // -------------------------------------------
+  // -----------------------------
+  // Clear cart
+  // -----------------------------
   const clearCart = async () => {
-    try {
-      await AsyncStorage.removeItem(STORAGE_KEY);
-      setItems([]);
-    } catch (err) {}
+    await AsyncStorage.removeItem(STORAGE_KEY);
+    await AsyncStorage.removeItem("sfy_buyNow"); // also clear buyNow after order
+    setItems([]);
+    setBuyProduct(null);
   };
 
-  // -------------------------------------------
-  // Select Correct Delivery Address
-  // -------------------------------------------
+  // -----------------------------
+  // Delivery Selection
+  // -----------------------------
   const getSelectedDelivery = () => {
     if (sameAsBilling && billing) return billing;
     return deliveryForm;
@@ -175,65 +211,121 @@ useEffect(() => {
 
   const validateDelivery = () => {
     const d = getSelectedDelivery();
-
     if (!d.name || !d.phone || !d.street || !d.pincode) {
-      Alert.alert("Error", "Please complete the address.");
+      Alert.alert("Error", "Please complete address");
       return false;
     }
     return true;
   };
 
-  // -------------------------------------------
-  // Place COD Order
-  // -------------------------------------------
+  // ⭐ COD CONFIRMATION POPUP
+  const confirmCOD = () => {
+    Alert.alert(
+      "Confirm Order",
+      "Are you sure you want to place this Cash on Delivery order?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Confirm",
+          onPress: () => placeOrderCOD(),
+        },
+      ]
+    );
+  };
+
+  // -----------------------------
+  // COD ORDER PLACE
+  // -----------------------------
   const placeOrderCOD = async () => {
     if (!validateDelivery()) return;
+
     setPlacing(true);
 
     try {
-      await addDoc(collection(db, "orders"), {
-        uid,
-        items,
+      const orderDocId = "ORD" + Date.now();
+
+      await setDoc(doc(db, "orders", orderDocId), {
+        orderId: orderDocId,
+        userId: uid || null,
+        items: items,
+        billingAddress: billing,
         deliveryAddress: getSelectedDelivery(),
-        paymentMethod: "COD",
-        amount: payable,
-        status: "Pending",
-        createdAt: Timestamp.now(),
+        paymentStatus: "COD",
+        totalAmount: payable,
+        status: "Confirmed",
+        createdAt: Timestamp.fromDate(new Date()),
+        expectedDelivery: null,
       });
 
       await clearCart();
-      Alert.alert("Success", "Order placed!");
-      navigation.navigate("Orders");
+
+      navigation.replace("ThankYou", {
+        orderId: orderDocId,
+        amount: payable,
+      });
     } catch (err) {
-      Alert.alert("Error", err.message);
+      Alert.alert("Error", err.message || "Could not place order");
     }
 
     setPlacing(false);
   };
 
-  // -------------------------------------------
-  // Online Payment
-  // -------------------------------------------
-  const startOnlinePayment = () => {
+  // -----------------------------
+  // ONLINE PAYMENT
+  // -----------------------------
+  const createOrder = async () => {
+    try {
+      let res = await fetch("https://api.razorpay.com/v1/orders", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Basic " + btoa("rzp_test_RjZEkRsSiAJGUs:igcUUkeWT9p78azeQjVOQHW1"),
+        },
+        body: JSON.stringify({
+          amount: payable * 100, // convert to paisa
+          currency: "INR",
+          receipt: "sfykart_rcpt_" + Date.now(),
+        }),
+      });
+
+      const json = await res.json();
+      return json.id; // 🔥 Razorpay order_id
+    } catch (err) {
+      console.log("Order API Error", err);
+      return null;
+    }
+  };
+
+  const startOnlinePayment = async () => {
+    if (!validateDelivery()) return;
+
+    const orderId = await createOrder();
+    if (!orderId) {
+      Alert.alert("Error", "Cannot create order!");
+      return;
+    }
+
+    // Redirect to Razorpay WebView screen
     navigation.navigate("WebPayment", {
-      url: "https://rzp.io/l/YOUR_SHORT_LINK",
+      amount: payable,
+      orderId: orderId,
+      keyId: "rzp_test_RjZEkRsSiAJGUs",
+      delivery: getSelectedDelivery(),
+      billing: billing,
+      items: items,
+      uid: uid,
     });
   };
 
-  useEffect(() => {
-    fetchBilling();
-    loadCartFromStorage();
-  }, []);
-
-  // -------------------------------------------
-  // UI STARTS
-  // -------------------------------------------
+  // -----------------------------
+  // UI
+  // -----------------------------
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={{ paddingBottom: 180 }}>
         <Text style={styles.header}>Checkout</Text>
 
-        {/* ---------------- BILLING ---------------- */}
+        {/* BILLING ADDRESS */}
         <View style={styles.card}>
           <View style={styles.rowHead}>
             <Ionicons name="home-outline" size={20} color="#1f6feb" />
@@ -255,11 +347,11 @@ useEffect(() => {
               <Text style={styles.addrText}>Phone: {billing.phone}</Text>
             </>
           ) : (
-            <Text style={{ color: "#777" }}>No address found.</Text>
+            <Text style={{ color: "#777" }}>Loading address…</Text>
           )}
         </View>
 
-        {/* ---------------- SAME AS BILLING ---------------- */}
+        {/* SAME AS BILLING */}
         <View style={styles.card}>
           <View style={styles.switchRow}>
             <Text style={styles.switchLabel}>Deliver to same address</Text>
@@ -272,77 +364,23 @@ useEffect(() => {
 
           {!sameAsBilling && (
             <View style={{ marginTop: 10 }}>
-              <TextInput
-                placeholder="Full Name"
-                style={styles.input}
-                value={deliveryForm.name}
-                onChangeText={(t) =>
-                  setDeliveryForm((p) => ({ ...p, name: t }))
-                }
-              />
-              <TextInput
-                placeholder="Phone"
-                keyboardType="phone-pad"
-                style={styles.input}
-                value={deliveryForm.phone}
-                onChangeText={(t) =>
-                  setDeliveryForm((p) => ({ ...p, phone: t }))
-                }
-              />
-              <TextInput
-                placeholder="Street / House"
-                style={styles.input}
-                value={deliveryForm.street}
-                onChangeText={(t) =>
-                  setDeliveryForm((p) => ({ ...p, street: t }))
-                }
-              />
-              <TextInput
-                placeholder="Post / Landmark"
-                style={styles.input}
-                value={deliveryForm.post}
-                onChangeText={(t) =>
-                  setDeliveryForm((p) => ({ ...p, post: t }))
-                }
-              />
-              <TextInput
-                placeholder="District"
-                style={styles.input}
-                value={deliveryForm.district}
-                onChangeText={(t) =>
-                  setDeliveryForm((p) => ({ ...p, district: t }))
-                }
-              />
-              <TextInput
-                placeholder="City"
-                style={styles.input}
-                value={deliveryForm.city}
-                onChangeText={(t) =>
-                  setDeliveryForm((p) => ({ ...p, city: t }))
-                }
-              />
-              <TextInput
-                placeholder="State"
-                style={styles.input}
-                value={deliveryForm.state}
-                onChangeText={(t) =>
-                  setDeliveryForm((p) => ({ ...p, state: t }))
-                }
-              />
-              <TextInput
-                placeholder="Pincode"
-                keyboardType="numeric"
-                style={styles.input}
-                value={deliveryForm.pincode}
-                onChangeText={(t) =>
-                  setDeliveryForm((p) => ({ ...p, pincode: t }))
-                }
-              />
+              {Object.keys(deliveryForm).map((key) => (
+                <TextInput
+                  key={key}
+                  placeholder={key.toUpperCase()}
+                  style={styles.input}
+                  value={deliveryForm[key]}
+                  keyboardType={key === "pincode" ? "numeric" : "default"}
+                  onChangeText={(t) =>
+                    setDeliveryForm((prev) => ({ ...prev, [key]: t }))
+                  }
+                />
+              ))}
             </View>
           )}
         </View>
 
-        {/* ---------------- ITEMS ---------------- */}
+        {/* ITEMS */}
         <View style={styles.card}>
           <View style={styles.rowHead}>
             <Ionicons name="cube-outline" size={20} color="#1f6feb" />
@@ -352,11 +390,13 @@ useEffect(() => {
           {loadingItems ? (
             <ActivityIndicator style={{ padding: 20 }} />
           ) : items.length === 0 ? (
-            <Text style={{ color: "#444" }}>Your cart is empty.</Text>
+            <Text>Your cart is empty.</Text>
           ) : (
-            items.map((it) => (
-              <View key={it.id} style={styles.itemRow}>
+            // render normalized items array (works for both buyNow single item and cart)
+            items.map((it, index) => (
+              <View key={it.id + "_" + index} style={styles.itemRow}>
                 <Image source={{ uri: it.image }} style={styles.prodImg} />
+
                 <View style={{ marginLeft: 12, flex: 1 }}>
                   <Text style={styles.itemTitle}>{it.title}</Text>
                   <Text style={styles.itemPrice}>₹{it.price}</Text>
@@ -367,7 +407,7 @@ useEffect(() => {
           )}
         </View>
 
-        {/* ---------------- PAYMENT ---------------- */}
+        {/* PAYMENT */}
         <View style={styles.card}>
           <View style={styles.rowHead}>
             <Ionicons name="card-outline" size={20} color="#1f6feb" />
@@ -375,10 +415,7 @@ useEffect(() => {
           </View>
 
           <TouchableOpacity
-            style={[
-              styles.payBox,
-              paymentMethod === "cod" && styles.payActive,
-            ]}
+            style={[styles.payBox, paymentMethod === "cod" && styles.payActive]}
             onPress={() => setPaymentMethod("cod")}
           >
             <Ionicons name="cash-outline" size={20} color="#1f6feb" />
@@ -386,22 +423,15 @@ useEffect(() => {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[
-              styles.payBox,
-              paymentMethod === "online" && styles.payActive,
-            ]}
+            style={[styles.payBox, paymentMethod === "online" && styles.payActive]}
             onPress={() => setPaymentMethod("online")}
           >
-            <Ionicons
-              name="phone-portrait-outline"
-              size={20}
-              color="#1f6feb"
-            />
+            <Ionicons name="phone-portrait-outline" size={20} color="#1f6feb" />
             <Text style={styles.payText}>Online Payment</Text>
           </TouchableOpacity>
         </View>
 
-        {/* ---------------- PRICE ---------------- */}
+        {/* PRICE DETAILS */}
         <View style={styles.card}>
           <View style={styles.rowHead}>
             <Ionicons name="receipt-outline" size={20} color="#1f6feb" />
@@ -418,18 +448,27 @@ useEffect(() => {
             <Text>{deliveryCharge === 0 ? "FREE" : `₹${deliveryCharge}`}</Text>
           </View>
 
-          <Text style={styles.tax}>Including all taxes</Text>
-
           <View style={styles.divider} />
 
           <View style={styles.priceRow}>
             <Text style={styles.totalLeft}>Total Payable</Text>
             <Text style={styles.totalRight}>₹{payable}</Text>
           </View>
+          <Text
+            style={{
+              textAlign: "right",
+              marginTop: 4,
+              color: "#4caf50",
+              fontWeight: "600",
+              fontSize: 13,
+            }}
+          >
+            ✔ Included all taxes
+          </Text>
         </View>
       </ScrollView>
 
-      {/* ---------------- BOTTOM BAR ---------------- */}
+      {/* BOTTOM BAR */}
       <View style={styles.bottomBar}>
         <View>
           <Text style={styles.bottomLabel}>Payable</Text>
@@ -439,18 +478,10 @@ useEffect(() => {
         <TouchableOpacity
           disabled={placing}
           style={styles.placeBtn}
-          onPress={() =>
-            paymentMethod === "cod"
-              ? placeOrderCOD()
-              : startOnlinePayment()
-          }
+          onPress={() => (paymentMethod === "cod" ? confirmCOD() : startOnlinePayment())}
         >
           <Text style={styles.placeTxt}>
-            {placing
-              ? "Processing..."
-              : paymentMethod === "cod"
-              ? "Place Order"
-              : `Pay ₹${payable}`}
+            {placing ? "Processing…" : paymentMethod === "cod" ? "Place Order" : `Pay ₹${payable}`}
           </Text>
         </TouchableOpacity>
       </View>
@@ -458,8 +489,12 @@ useEffect(() => {
   );
 }
 
+// -----------------------------
+// STYLES
+// -----------------------------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#f6f9ff" },
+
   header: {
     fontSize: 26,
     fontWeight: "900",
@@ -487,27 +522,26 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  switchLabel: { fontSize: 15 },
 
   input: {
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: "#ddd",
     padding: 10,
-    borderRadius: 8,
-    marginTop: 8,
+    borderRadius: 10,
+    marginTop: 10,
     backgroundColor: "#fff",
   },
 
   itemRow: {
     flexDirection: "row",
-    alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderColor: "#eee",
   },
+
   prodImg: {
-    width: 80,
-    height: 80,
+    width: 70,
+    height: 70,
     borderRadius: 10,
     backgroundColor: "#f3f4f6",
   },
@@ -521,14 +555,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 14,
     borderWidth: 1,
-    borderColor: "#e6e9f0",
+    borderColor: "#ddd",
     borderRadius: 12,
     marginTop: 8,
   },
+
   payActive: {
     borderColor: "#1f6feb",
     backgroundColor: "#eef6ff",
   },
+
   payText: { marginLeft: 12, fontSize: 15, fontWeight: "700" },
 
   priceRow: {
@@ -536,7 +572,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 10,
   },
-  tax: { marginTop: 6, color: "#666", fontSize: 12 },
 
   divider: {
     height: 1,
@@ -558,8 +593,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     borderTopWidth: 1,
     borderColor: "#e5e7eb",
-    alignItems: "center",
   },
+
   bottomLabel: { fontSize: 13, color: "#666" },
   bottomPrice: { fontSize: 20, fontWeight: "900", color: "#1f6feb" },
 
@@ -569,6 +604,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
   },
+
   placeTxt: {
     color: "#fff",
     fontSize: 16,

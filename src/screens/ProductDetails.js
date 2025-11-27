@@ -14,6 +14,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { db } from "../firebaseConfig";
+import { onSnapshot } from "firebase/firestore";
+import { submitRating } from "../utils/submitRating";
+import { auth } from "../firebaseConfig";
+
 
 import {
   collection,
@@ -22,11 +26,49 @@ import {
   getDocs,
   addDoc,
   doc,
-  getDoc
+  getDoc,
+  updateDoc   // 🔥🔥 Most important
 } from "firebase/firestore";
+
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRoute, useNavigation } from "@react-navigation/native";
+
+const ensureRatingFields = async (slug) => {
+  try {
+    const ref = doc(db, "products", slug);
+    const snap = await getDoc(ref);
+
+    if (!snap.exists()) return;
+
+    const data = snap.data();
+    let updateNeeded = false;
+    const updateData = {};
+
+    if (data.avgRating === undefined) {
+      updateData.avgRating = 0;
+      updateNeeded = true;
+    }
+
+    if (data.totalReviews === undefined) {
+      updateData.totalReviews = 0;
+      updateNeeded = true;
+    }
+
+    if (!data.ratingsCount) {
+      updateData.ratingsCount = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      updateNeeded = true;
+    }
+
+    if (updateNeeded) {
+      await updateDoc(ref, updateData);
+      console.log("Rating fields initialized for", slug);
+    }
+  } catch (err) {
+    console.log("Rating field init error:", err);
+  }
+};
+
 
 
 // ---------- Shiprocket Token ----------
@@ -63,8 +105,18 @@ export default function ProductDetails() {
   const route = useRoute();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+
+  // 🟢 Product from navigation
   const product = route.params || {};
+
+  // 🟢 Safe reviews array
   const reviews = Array.isArray(product.reviews) ? product.reviews : [];
+
+  // 🟢 Firestore product ID (very important)
+  const productId = product.docId || product.id || product.slug || product.name;
+
+  console.log("🔥 PRODUCT ID:", productId);
+
 
 
   // ---------- States ----------
@@ -84,9 +136,15 @@ const [related, setRelated] = useState([]);
 const [reviewRating, setReviewRating] = useState(0);
 const [reviewName, setReviewName] = useState("");
 const [reviewText, setReviewText] = useState("");
+const [liveProduct, setLiveProduct] = useState(product);
+const [liveReviews, setLiveReviews] = useState([]);
 
-
-
+// 🔥 Auto-create rating fields if missing
+useEffect(() => {
+  if (product.slug) {
+    ensureRatingFields(product.slug);
+  }
+}, [product.slug]);
 
   // ---------- IMAGES ----------
   const images = Array.isArray(product.images)
@@ -106,6 +164,41 @@ const [reviewText, setReviewText] = useState("");
     }, 3000);
     return () => clearInterval(id);
   }, [images.length]);
+// 🔥 LIVE PRODUCT LISTENER (avgRating, totalReviews, ratingsCount)
+useEffect(() => {
+  if (!product.slug) return;
+
+  const ref = doc(db, "products", product.slug);
+
+  const unSub = onSnapshot(ref, (snap) => {
+    if (snap.exists()) {
+      setLiveProduct({ id: snap.id, ...snap.data() });
+    }
+  });
+
+  return () => unSub();
+}, [product.slug]);
+
+// 🔥 LIVE REVIEWS LISTENER
+// 🔥 LIVE REVIEWS LISTENER — FIXED
+useEffect(() => {
+  if (!product.slug) return;
+
+  const q = query(
+    collection(db, "reviews"),
+    where("productId", "==", product.id)
+   // ✅ FIXED
+  );
+
+  const unsubscribe = onSnapshot(q, (snap) => {
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    console.log("LIVE REVIEWS:", list);
+    setLiveReviews(list);
+  });
+
+  return () => unsubscribe();
+}, [product.slug]);
+
 
   // ---------- Timer (3 hours) ----------
   useEffect(() => {
@@ -186,14 +279,17 @@ const handleSubmitReview = async () => {
     return;
   }
 
+const safeProductId = product.id;
   try {
     await addDoc(collection(db, "reviews"), {
-      productId: product.slug,
+      productId: safeProductId,
       rating: reviewRating,
       name: reviewName,
       review: reviewText,
       createdAt: Date.now(),
     });
+    // ⭐ Update product rating fields
+await submitRating(safeProductId, reviewRating);
 
     Alert.alert("Success", "Review submitted!");
 
@@ -205,6 +301,7 @@ const handleSubmitReview = async () => {
     Alert.alert("Error", "Unable to submit review.");
   }
 };
+
 
 
 // ---------- Load QA ----------
@@ -297,8 +394,12 @@ useEffect(() => {
 // SAFE product values (fallbacks)
 const productName = product.name || "Product Name";
 const productImage = images[0] || "https://via.placeholder.com/300";
-const productRating = product.rating ? Number(product.rating) : 4.5;
-const productReviews = product.totalReviews ? Number(product.totalReviews) : 20;
+const productRating = liveProduct.avgRating || product.rating
+ ? Number(liveProduct.avgRating || product.rating
+) : 4.5;
+const productReviews = liveProduct.totalReviews || product.totalReviews
+ ? Number(liveProduct.totalReviews || product.totalReviews
+) : 20;
 
 // Safe price & compare price
 const price = product.price ? Number(product.price) : 0;
@@ -362,13 +463,34 @@ const totalSaved = Math.round(mrpSaving + couponSaving);
   };
 
   const handleBuyNow = async () => {
-    try {
-      await AsyncStorage.setItem("sfy_buyNow", JSON.stringify({ ...product, quantity: qty }));
-      navigation.navigate("Cart");
-    } catch (err) {
-      Alert.alert("Error", "Could not proceed");
+  try {
+    // 🔥 Always save Buy Now product BEFORE Login redirect
+    await AsyncStorage.setItem(
+      "sfy_buyNow",
+      JSON.stringify({ ...product, quantity: qty })
+    );
+
+    const user = auth.currentUser;
+
+    // 🔥 If NOT logged in → go to Login Screen
+    if (!user) {
+      navigation.navigate("Login", {
+        redirectTo: "CheckoutScreen",
+      });
+      return;
     }
-  };
+
+    // 🔥 If already logged in → go to Checkout
+    navigation.navigate("CheckoutScreen");
+
+  } catch (err) {
+    console.log("BUY NOW ERROR:", err);
+    Alert.alert("Error", "Could not proceed");
+  }
+};
+
+
+
 
   // --------------------- UI ---------------------
   return (
@@ -379,9 +501,10 @@ const totalSaved = Math.round(mrpSaving + couponSaving);
           <Text style={styles.title}>{product.name || "Product"}</Text>
 
           <View style={styles.topRow}>
-            <Text style={styles.ratingSmall}>⭐ {(product.avgRating || product.rating || 4.5).toFixed(1)}</Text>
-            <Text style={styles.smallGray}>• {product.totalReviews || 0} ratings</Text>
-          </View>
+  <Text style={styles.ratingSmall}>⭐ {(liveProduct.avgRating || 0).toFixed(1)}</Text>
+<Text style={styles.smallGray}>• {liveProduct.totalReviews || 0} ratings</Text>
+</View>
+
 
           <View style={styles.priceRow}>
             <Text style={styles.priceLarge}>{fmt(price)}</Text>
@@ -538,31 +661,35 @@ const totalSaved = Math.round(mrpSaving + couponSaving);
   <View style={styles.ratingRow}>
     {/* LEFT BIG RATING */}
     <View style={styles.ratingLeft}>
-      <Text style={styles.ratingScore}>{product.rating || 4.5}</Text>
+      <Text style={styles.ratingScore}>{liveProduct.avgRating || product.rating
+ || 4.5}</Text>
       <Text style={styles.ratingStars}>★★★★★</Text>
       <Text style={styles.ratingCount}>
-        {product.totalReviews || 20} ratings
+        {liveProduct.totalReviews || product.totalReviews
+ || 0} ratings
       </Text>
     </View>
 
     {/* RIGHT STAR BARS */}
-    <View style={styles.ratingBars}>
-      {[5, 4, 3, 2, 1].map((star, i) => (
-        <View key={i} style={styles.barRow}>
-          <Text style={styles.barLabel}>{star}</Text>
+    {/* RIGHT STAR BARS */}
+<View style={styles.ratingBars}>
+  {[5,4,3,2,1].map((star) => {
+    const count = liveProduct?.ratingsCount?.[star] || 0;
+    const total = liveProduct?.totalReviews || 0;
+    const percent = total > 0 ? Math.round((count / total) * 100) : 0;
 
-          <View style={styles.barBg}>
-            <View
-              style={[
-                styles.barFill,
-                { width: `${[70, 18, 8, 3, 1][i]}%` },
-              ]}
-            />
-          </View>
+    return (
+      <View key={star} style={styles.barRow}>
+        <Text style={styles.barLabel}>{star}</Text>
 
-          <Text style={styles.barPercent}>{[70, 18, 8, 3, 1][i]}%</Text>
+        <View style={styles.barBg}>
+          <View style={[styles.barFill, { width: `${percent}%` }]} />
         </View>
-      ))}
+
+        <Text style={styles.barPercent}>{percent}%</Text>
+      </View>
+    );
+  })}
     </View>
   </View>
 </View>
@@ -615,16 +742,17 @@ const totalSaved = Math.round(mrpSaving + couponSaving);
 <View style={styles.customerBox}>
   <Text style={styles.customerTitle}>🧑‍💬 Customer Reviews</Text>
 
-  {reviews.length === 0 ? (
-    <Text style={{ color: "#777", marginTop: 4 }}>No reviews yet.</Text>
-  ) : (
-    reviews.map((r, i) => (
-      <View key={i} style={styles.reviewItem}>
-        <Text style={styles.reviewUser}>⭐ {r.rating} — {r.name}</Text>
-        <Text style={styles.reviewText}>{r.review}</Text>
-      </View>
-    ))
-  )}
+ {liveReviews.length === 0 ? (
+  <Text style={{ color: "#777", marginTop: 4 }}>No reviews yet.</Text>
+) : (
+  liveReviews.map((r, i) => (
+    <View key={i} style={styles.reviewItem}>
+      <Text style={styles.reviewUser}>⭐ {r.rating} — {r.name}</Text>
+      <Text style={styles.reviewText}>{r.review}</Text>
+    </View>
+  ))
+)}
+
 </View>
 
 {/* PRODUCT DESCRIPTION */}
@@ -695,7 +823,6 @@ const totalSaved = Math.round(mrpSaving + couponSaving);
       contentContainerStyle={{ paddingHorizontal: 12 }}
     >
       {related.slice(0, 6).map((item, i) => {
-        // Correct image handling
         const img =
           item.image ||
           (Array.isArray(item.images) && item.images.length > 0
@@ -703,55 +830,64 @@ const totalSaved = Math.round(mrpSaving + couponSaving);
             : "https://via.placeholder.com/200");
 
         return (
-          <TouchableOpacity
-            key={i}
-            style={styles.relatedCard}
-            onPress={() => navigation.push("ProductDetails", item)}
-          >
-            <Image source={{ uri: img }} style={styles.relatedImg} />
+          <View key={i} style={styles.relatedCard}>
+            
+            {/* OPEN PRODUCT DETAILS */}
+            <TouchableOpacity
+              onPress={() =>
+                navigation.push("ProductDetails", {
+                  ...item,
+                  slug: item.slug || item.id,
+                  id: item.slug || item.id,
+                })
+              }
+            >
+              <Image source={{ uri: img }} style={styles.relatedImg} />
 
-            {/* NAME */}
-            <Text style={styles.relatedName} numberOfLines={1}>
-              {item.name}
-            </Text>
-
-            {/* RATING */}
-            <Text style={styles.relatedRating}>
-              ⭐ {item.avgRating || 4.5}
-            </Text>
-
-            {/* PRICE */}
-            <Text style={styles.relatedPrice}>₹{item.price}</Text>
-
-            {/* COMPARE PRICE + % OFF */}
-            {item.comparePrice && (
-              <Text style={styles.relatedCompare}>
-                ₹{item.comparePrice}{" "}
-                <Text style={styles.relatedOff}>
-                  ({Math.round(
-                    ((item.comparePrice - item.price) / item.comparePrice) * 100
-                  )}
-                  % off)
-                </Text>
+              {/* NAME */}
+              <Text style={styles.relatedName} numberOfLines={1}>
+                {item.name}
               </Text>
-            )}
 
-            {/* ATC BUTTON */}
-            <TouchableOpacity style={styles.relatedATC}>
+              {/* RATING */}
+              <Text style={styles.relatedRating}>
+                ⭐ {(item.avgRating || 0).toFixed(1)} ({item.totalReviews || 0})
+              </Text>
+
+              {/* PRICE */}
+              <Text style={styles.relatedPrice}>₹{item.price}</Text>
+
+              {/* COMPARE PRICE */}
+              {item.comparePrice && (
+                <Text style={styles.relatedCompare}>
+                  ₹{item.comparePrice}{" "}
+                  <Text style={styles.relatedOff}>
+                    (
+                    {Math.round(
+                      ((item.comparePrice - item.price) /
+                        item.comparePrice) *
+                        100
+                    )}
+                    % off)
+                  </Text>
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {/* ⭐ ONLY ADD TO CART BUTTON (BUY NOW REMOVED) */}
+            <TouchableOpacity
+              style={styles.relatedATC}
+              onPress={() => handleAddToCart(item)}
+            >
               <Text style={styles.relatedATCText}>Add to Cart</Text>
             </TouchableOpacity>
-
-            {/* BUY NOW BUTTON */}
-            <TouchableOpacity style={styles.relatedBuy}>
-              <Text style={styles.relatedBuyText}>Buy Now</Text>
-            </TouchableOpacity>
-
-          </TouchableOpacity>
+          </View>
         );
       })}
     </ScrollView>
   </View>
 )}
+
 
 
 
