@@ -9,6 +9,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  BackHandler,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -16,6 +17,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 // ⭐ FIREBASE
 import { auth, db } from "../firebaseConfig";
 import { collection, query, where, orderBy, getDocs, setDoc, doc } from "firebase/firestore";
+
+import { Ionicons } from "@expo/vector-icons";
 
 export default function Orders() {
   const navigation = useNavigation();
@@ -75,6 +78,18 @@ export default function Orders() {
     loadOrders();
   }, []);
 
+  // ⭐ Android hardware back
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        navigation.goBack();
+        return true;
+      }
+    );
+    return () => backHandler.remove();
+  }, []);
+
   // ⭐ Cancel Order Handler (COD only)
   const handleCancelOrder = async (order) => {
     Alert.alert(
@@ -129,9 +144,21 @@ export default function Orders() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#f2f4f7" }}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-        <Text style={styles.header}>Your Orders</Text>
 
+      {/* HEADER ROW */}
+      <View style={styles.headerRow}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingHorizontal: 12 }}>
+          <Ionicons name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
+
+        <Text style={styles.header}>Your Orders</Text>
+      </View>
+
+      <ScrollView
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 60 }}
+      >
         {loading ? (
           <ActivityIndicator style={{ marginTop: 50 }} />
         ) : orders.length === 0 ? (
@@ -189,7 +216,7 @@ export default function Orders() {
                 </Text>
               </TouchableOpacity>
 
-              {/* ⭐ CANCEL ORDER (ONLY COD + before shipping) */}
+           
               {item.paymentStatus === "COD" &&
                 (item.status === "Pending" ||
                   item.status === "Processing" ||
@@ -202,7 +229,7 @@ export default function Orders() {
                   </TouchableOpacity>
                 )}
 
-              {/* RETURN / REFUND */}
+            
               {item.status === "Delivered" &&
                 !item.refundStatus &&
                 deliveredDiff <= 7 && (
@@ -227,8 +254,6 @@ export default function Orders() {
             </View>
           );
         })}
-
-        <View style={{ height: 70 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -240,12 +265,19 @@ const styles = StyleSheet.create({
     paddingTop: 5,
   },
 
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+
   header: {
-    textAlign: "center",
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "900",
-    marginTop: 10,
-    marginBottom: 15,
+    marginLeft: 10,
     color: "#2563eb",
   },
 

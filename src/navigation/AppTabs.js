@@ -10,12 +10,7 @@ import HomeScreen from "../screens/HomeScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import CartScreen from "../screens/CartScreen";
 
-// AUTH SCREENS
-import LoginScreen from "../screens/LoginScreen";
-import GoogleLogin from "../screens/GoogleLogin";
-import CreateAccount from "../screens/CreateAccount";
-
-// ADDRESS & PROFILE
+// PROFILE SCREENS
 import Address from "../screens/Address";
 import AddAddress from "../screens/AddAddress";
 import EditAddress from "../screens/EditAddress";
@@ -27,7 +22,7 @@ import Notifications from "../screens/Notifications";
 import PrivacySecurity from "../screens/PrivacySecurity";
 import TwoFactor from "../screens/TwoFactor";
 
-// PRODUCT & ORDER SCREENS
+// PRODUCT SCREENS
 import ProductDetails from "../screens/ProductDetails";
 import CheckoutScreen from "../screens/CheckoutScreen";
 import PaymentScreen from "../screens/PaymentScreen";
@@ -45,17 +40,12 @@ function HomeStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="HomeMain" component={HomeScreen} />
 
-      {/* PRODUCT FLOW (TAB BAR VISIBLE) */}
+      {/* PRODUCT FLOW */}
       <Stack.Screen name="ProductDetails" component={ProductDetails} />
       <Stack.Screen name="CheckoutScreen" component={CheckoutScreen} />
       <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
       <Stack.Screen name="WebPayment" component={WebPayment} />
       <Stack.Screen name="ThankYou" component={ThankYou} />
-
-      {/* AUTH FLOW */}
-      <Stack.Screen name="Login" component={LoginScreen} />
-      <Stack.Screen name="GoogleLogin" component={GoogleLogin} />
-      <Stack.Screen name="CreateAccount" component={CreateAccount} />
     </Stack.Navigator>
   );
 }
@@ -80,9 +70,6 @@ function ProfileStack() {
       <Stack.Screen name="Notifications" component={Notifications} />
       <Stack.Screen name="PrivacySecurity" component={PrivacySecurity} />
       <Stack.Screen name="TwoFactor" component={TwoFactor} />
-
-      {/* PRODUCT DETAILS FROM PROFILE AREA TOO */}
-      <Stack.Screen name="ProductDetails" component={ProductDetails} />
     </Stack.Navigator>
   );
 }

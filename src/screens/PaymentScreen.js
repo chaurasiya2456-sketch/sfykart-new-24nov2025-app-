@@ -41,9 +41,10 @@ export default function PaymentScreen({ route, navigation }) {
       return;
     }
 
-    navigation.navigate("OrderSuccess", {
-      paymentType: selectedPayment,
-    });
+    navigation.navigate("ThankYou", {
+  paymentType: selectedPayment,
+});
+
   };
 
   return (

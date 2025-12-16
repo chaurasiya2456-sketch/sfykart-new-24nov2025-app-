@@ -37,20 +37,18 @@ function HomeContent() {
   const [allProducts, setAllProducts] = useState([]);
   const [filteredProducts, setFilteredProducts] = useState([]);
 
-  const handleSearch = (text) => {
-    setSearchText(text);
+ // पुराना handleSearch हटा दें, सिर्फ यह add करें:
+useEffect(() => {
+  if (searchText.trim() === "") {
+    setFilteredProducts(allProducts);
+    return;
+  }
+  const result = allProducts.filter((item) =>
+    item.name.toLowerCase().includes(searchText.toLowerCase())
+  );
+  setFilteredProducts(result);
+}, [searchText, allProducts]);
 
-    if (text.trim() === "") {
-      setFilteredProducts(allProducts);
-      return;
-    }
-
-    const result = allProducts.filter((item) =>
-      item.name.toLowerCase().includes(text.toLowerCase())
-    );
-
-    setFilteredProducts(result);
-  };
 
   /* ⭐ PRODUCT STATES */
   const [products, setProducts] = useState([]); // trending
@@ -86,8 +84,9 @@ function HomeContent() {
       setProducts(list);
 
       // ⭐ Add to search list
-      setAllProducts((prev) => [...prev, ...list]);
-      setFilteredProducts((prev) => [...prev, ...list]);
+      setAllProducts(list);
+setFilteredProducts(list);
+
 
     } catch (err) {
       console.log("Trending fetch error:", err);
@@ -179,12 +178,12 @@ function HomeContent() {
         {/* SEARCH BAR WITH GOLD BUTTON */}
         <View style={styles.searchWrapper}>
           <TextInput
-            style={styles.searchInput}
-            placeholder="Search for products..."
-            placeholderTextColor="#777"
-            value={searchText}
-            onChangeText={handleSearch}
-          />
+  style={styles.searchInput}
+  placeholder="Search for products..."
+  placeholderTextColor="#777"
+  value={searchText}
+  onChangeText={setSearchText}   सही
+/>
 
           <TouchableOpacity style={styles.searchBtn}>
             <Text style={{ color: "#fff", fontWeight: "900" }}>🔍</Text>
@@ -245,50 +244,51 @@ function HomeContent() {
         </ScrollView>
 
         {/* TRENDING */}
-        <Text style={styles.sectionTitle}>Trending Products</Text>
+    {/* TRENDING */}
+<Text style={styles.sectionTitle}>Trending Products</Text>
 
-        <View style={styles.gridWrapper}>
-          {products.map((item, index) => (
-            <View key={index} style={styles.productCard}>
-
-              <TouchableOpacity
-  onPress={() =>
-  navigation.navigate("ProductDetails", { ...item, slug: item.slug || item.id })
-}
->
-
-                <View style={styles.imageBox}>
-                  <Image source={{ uri: item.image }} style={styles.prodImg} />
-                </View>
-
-                <Text style={styles.productName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-
-                <Text style={styles.ratingStar}>
-  <Text style={styles.starIcon}>
-    {renderStars(item.avgRating || 0)}
-  </Text>
-  <Text style={styles.reviews}>
-    ({item.totalReviews || 0})
-  </Text>
-</Text>
-
-
-                <View style={styles.priceRow}>
-                  <Text style={styles.productPrice}>₹{item.price}</Text>
-                  <Text style={styles.mrp}>₹{item.comparePrice}</Text>
-                  <Text style={styles.discount}>{item.off}% off</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.addBtn} onPress={() => handleAddToCart(item)}>
-                <Text style={{ color: "#fff", fontWeight: "700" }}>Add to Cart</Text>
-              </TouchableOpacity>
-
-            </View>
-          ))}
+<View style={styles.gridWrapper}>
+  {products.map((item, index) => (
+    <View key={index} style={styles.productCard}>
+      <TouchableOpacity
+        onPress={() =>
+          navigation.navigate("ProductDetails", { 
+            ...item, 
+            slug: item.slug || item.id 
+          })
+        }
+      >
+        <View style={styles.imageBox}>
+          <Image source={{ uri: item.image }} style={styles.prodImg} />
         </View>
+
+        <Text style={styles.productName} numberOfLines={1}>
+          {item.name}
+        </Text>
+
+        <Text style={styles.ratingStar}>
+          <Text style={styles.starIcon}>
+            {renderStars(item.avgRating || 0)}
+          </Text>
+          <Text style={styles.reviews}>
+            ({item.totalReviews || 0})
+          </Text>
+        </Text>
+
+        <View style={styles.priceRow}>
+          <Text style={styles.productPrice}>₹{item.price}</Text>
+          <Text style={styles.mrp}>₹{item.comparePrice}</Text>
+          <Text style={styles.discount}>{item.off}% off</Text>
+        </View>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.addBtn} onPress={() => handleAddToCart(item)}>
+        <Text style={{ color: "#fff", fontWeight: "700" }}>Add to Cart</Text>
+      </TouchableOpacity>
+    </View>
+  ))}
+</View>
+
 
         {/* FEATURED */}
         <Text style={styles.sectionTitle}>Featured Products</Text>
@@ -341,12 +341,9 @@ function HomeContent() {
 }
 
 export default function HomeScreen() {
-  return (
-    <SafeAreaProvider>
-      <HomeContent />
-    </SafeAreaProvider>
-  );
+  return <HomeContent />;
 }
+
 
 /* --------------------------------------------------------
                     STYLES

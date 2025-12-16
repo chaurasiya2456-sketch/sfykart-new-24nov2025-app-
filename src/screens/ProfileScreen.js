@@ -81,7 +81,7 @@ export default function ProfileScreen() {
         <Option
           icon="cube"
           label="Your Orders"
-          onPress={() => navigation.navigate("Orders")}
+onPress={() => navigation.push("Orders")}
         />
 
         <Option

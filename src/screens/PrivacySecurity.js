@@ -1,4 +1,5 @@
 // screens/PrivacySecurity.js
+
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -47,7 +48,7 @@ export default function PrivacySecurity({ navigation }) {
     fetchLoginActivity();
   }, []);
 
-  // Fetch login activity from Firestore: users/{uid}/logins (if exists)
+  // Fetch login activity from Firestore
   const fetchLoginActivity = async () => {
     if (!uid) return;
     try {
@@ -64,7 +65,7 @@ export default function PrivacySecurity({ navigation }) {
     }
   };
 
-  // Change Password flow (requires reauth)
+  // Change Password
   const handleChangePassword = async () => {
     if (!user?.email) {
       Alert.alert("Error", "No email available for current user.");
@@ -87,7 +88,6 @@ export default function PrivacySecurity({ navigation }) {
       setLoading(true);
       const cred = EmailAuthProvider.credential(user.email, currentPassword);
       await reauthenticateWithCredential(user, cred);
-
       await updatePassword(user, newPassword);
       Alert.alert("Success", "Password updated successfully.");
       setShowChangePassword(false);
@@ -95,7 +95,6 @@ export default function PrivacySecurity({ navigation }) {
       setNewPassword("");
       setConfirmPassword("");
     } catch (err) {
-      console.warn("changePassword:", err);
       if (err.code === "auth/wrong-password") {
         Alert.alert("Error", "Current password is incorrect.");
       } else {
@@ -106,7 +105,7 @@ export default function PrivacySecurity({ navigation }) {
     }
   };
 
-  // Open app settings for permissions
+  // App Settings
   const openAppSettings = () => {
     if (Platform.OS === "ios") {
       Linking.openURL("app-settings:");
@@ -115,23 +114,7 @@ export default function PrivacySecurity({ navigation }) {
     }
   };
 
-  // Open privacy policy url
-  const openPrivacyPolicy = () => {
-    const url = "https://yourdomain.com/privacy-policy"; // replace with real URL
-    Linking.openURL(url).catch(() => {
-      Alert.alert("Error", "Unable to open link.");
-    });
-  };
-
-  // Open terms & conditions
-  const openTerms = () => {
-    const url = "https://yourdomain.com/terms"; // replace with real URL
-    Linking.openURL(url).catch(() => {
-      Alert.alert("Error", "Unable to open link.");
-    });
-  };
-
-  // Delete account (careful: requires recent login)
+  // Delete Account
   const handleDeleteAccount = async () => {
     Alert.alert(
       "Delete Account",
@@ -142,26 +125,18 @@ export default function PrivacySecurity({ navigation }) {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            if (!user) {
-              Alert.alert("Error", "No user signed in.");
-              return;
-            }
+            if (!user) return;
             try {
               setLoading(true);
-              // Attempt to remove user's Firestore document (best-effort)
               const userDocRef = doc(db, "users", uid);
               const snap = await getDoc(userDocRef);
               if (snap.exists()) {
-                // try deleting user doc (single doc). If you store subcollections, they must be deleted separately.
                 await deleteDoc(userDocRef);
               }
-              // Delete from auth (may require recent login)
               await deleteUser(user);
               Alert.alert("Account deleted", "Your account has been deleted.");
-              // Navigate to Login screen (app should handle auth state)
               navigation.replace("Login");
             } catch (err) {
-              console.warn("deleteAccount:", err);
               Alert.alert(
                 "Error",
                 err.code === "auth/requires-recent-login"
@@ -177,20 +152,16 @@ export default function PrivacySecurity({ navigation }) {
     );
   };
 
-  // Sign out other devices (dummy implementation)
-  // If you store login tokens in Firestore, you can remove them here.
+  // Sign out other devices
   const handleSignOutOtherDevices = async () => {
     if (!uid) return;
     try {
       setLoading(true);
-      // Example: clear a "sessions" subcollection or set a flag to invalidate tokens.
-      // This is highly app-specific. Here we simply add a "lastSignOutAll" timestamp to user's doc
       const userDocRef = doc(db, "users", uid);
       await setDoc(userDocRef, { lastSignOutAll: Date.now() }, { merge: true });
-      Alert.alert("Success", "Signed out on other devices (if supported).");
+      Alert.alert("Success", "Signed out from other devices.");
       fetchLoginActivity();
     } catch (err) {
-      console.warn("signOutOtherDevices:", err);
       Alert.alert("Error", "Unable to sign out other devices.");
     } finally {
       setLoading(false);
@@ -202,8 +173,9 @@ export default function PrivacySecurity({ navigation }) {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
         <Text style={styles.header}>Privacy & Security</Text>
 
-        {/* Change Password */}
+        {/* Account Security */}
         <Text style={styles.section}>Account Security</Text>
+
         <Option
           icon="key-outline"
           label="Change Password"
@@ -258,14 +230,13 @@ export default function PrivacySecurity({ navigation }) {
           </View>
         )}
 
-       <Option
-  icon="finger-print-outline"
-  label="Two-step Verification"
-  onPress={() => navigation.navigate("TwoFactor")}
-/>
+        <Option
+          icon="finger-print-outline"
+          label="Two-step Verification"
+          onPress={() => navigation.navigate("TwoFactor")}
+        />
 
-
-        {/* Login activity */}
+        {/* Login Activity */}
         <Text style={styles.section}>Login Activity</Text>
 
         <View style={styles.card}>
@@ -297,7 +268,7 @@ export default function PrivacySecurity({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* App Permissions */}
+        {/* Permissions */}
         <Text style={styles.section}>Permissions</Text>
         <Option
           icon="construct-outline"
@@ -307,15 +278,38 @@ export default function PrivacySecurity({ navigation }) {
 
         {/* Policies */}
         <Text style={styles.section}>Policies</Text>
-        <Option icon="document-text-outline" label="Privacy Policy" onPress={openPrivacyPolicy} />
-        <Option icon="reader-outline" label="Terms & Conditions" onPress={openTerms} />
 
-        {/* Account deletion */}
+        <Option
+          icon="document-text-outline"
+          label="Privacy Policy"
+          onPress={() => navigation.navigate("PrivacyPolicy")}
+        />
+
+        <Option
+          icon="reader-outline"
+          label="Terms & Conditions"
+          onPress={() => navigation.navigate("Terms")}
+        />
+
+        <Option
+          icon="cash-outline"
+          label="Refund & Return Policy"
+          onPress={() => navigation.navigate("RefundPolicy")}
+        />
+
+        {/* Danger Zone */}
         <Text style={styles.section}>Danger Zone</Text>
         <View style={styles.card}>
-          <Text style={{ color: "#b91c1c", fontWeight: "800", marginBottom: 10 }}>
+          <Text
+            style={{
+              color: "#b91c1c",
+              fontWeight: "800",
+              marginBottom: 10,
+            }}
+          >
             Delete your account
           </Text>
+
           <Text style={styles.muted}>
             Deleting will remove your account and most data. This action is irreversible.
           </Text>
@@ -334,7 +328,7 @@ export default function PrivacySecurity({ navigation }) {
   );
 }
 
-/* Small option row */
+/* Option Row Component */
 function Option({ icon, label, onPress }) {
   return (
     <TouchableOpacity style={styles.option} onPress={onPress}>
@@ -410,5 +404,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#f3f4f6",
+  },
+  activityTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111",
   },
 });

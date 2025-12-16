@@ -11,13 +11,7 @@ export default function ThankYou({ route, navigation }) {
     return () => back.remove();
   }, []);
 
-  // 🔥 Clear navigation history → so no going back to checkout/cart
-  useEffect(() => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "ThankYou", params: { orderId } }],
-    });
-  }, []);
+  // ❌ Removed the infinite-loop reset() here
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -43,34 +37,17 @@ export default function ThankYou({ route, navigation }) {
           </Text>
         </View>
 
-        {/* ⭐ View Orders (INSIDE PROFILE TAB) */}
+        {/* ⭐ View Orders */}
         <TouchableOpacity
-          style={styles.primaryBtn}
-          onPress={() =>
-            navigation.reset({
-              index: 0,
-              routes: [
-                {
-                  name: "Tabs",
-                  state: {
-                    index: 1,
-                    routes: [
-                      { name: "Home" },
-                      {
-                        name: "Profile",
-                        state: {
-                          index: 0,
-                          routes: [{ name: "Orders" }],
-                        },
-                      },
-                      { name: "Cart" },
-                    ],
-                  },
-                },
-              ],
-            })
-          }
-        >
+  style={styles.primaryBtn}
+  onPress={() =>
+    navigation.navigate("Tabs", {
+      screen: "Profile",
+      params: { screen: "Orders" },
+    })
+  }
+>
+
           <Text style={styles.primaryTxt}>View My Orders</Text>
         </TouchableOpacity>
 
